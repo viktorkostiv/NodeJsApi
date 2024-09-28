@@ -1,6 +1,6 @@
 const { initializeApp } = require('firebase/app');
 const { getFirestore, getDocs, getDoc, addDoc, doc, collection, where, orderBy, query, setDoc, deleteDoc } = require('firebase/firestore');
-const { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } = require("firebase/auth");
+const { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } = require("firebase/auth");
 const admin = require('firebase-admin');
 require('dotenv').config();
 
@@ -99,7 +99,7 @@ exports.getObjectById = async (req, res) => {
         let data;
 
         await getDoc(docRef).then((item) => {
-            data = item.data ? { ...item.data(), id: item.id } : null;
+            data = item.data() ? { ...item.data(), id: item.id } : null;
         });
 
         res.status(200).json({ status: 'success', data });
@@ -187,11 +187,14 @@ exports.signIn = async (req, res) => {
 
         let response;
         const auth = getAuth();
-        await signInWithEmailAndPassword(auth, credentials.email, credentials.password).then( async (res) => {
+        await signInWithEmailAndPassword(auth, credentials.email, credentials.password).then(async (res) => {
             const user = res.user;
             const idToken = await user.getIdToken();
 
-            response = { status: 200, statusTitle: 'success', user: user.uid, idToken };
+            const expiresIn = 60 * 60 * 24 * 5 * 1000;
+            const sessionCookie = await admin.auth().createSessionCookie(idToken, { expiresIn });
+
+            response = { status: 200, statusTitle: 'success', user: user.uid, sessionCookie };
         }).catch((error) => {
             response = { status: 400, statusTitle: 'error', message: `Failed to Sign-in. ${error.message}` }
         });
@@ -210,16 +213,108 @@ exports.signUp = async (req, res) => {
 
         let response;
         const auth = getAuth();
-        await createUserWithEmailAndPassword(auth, credentials.email, credentials.password).then( async (res) => {
+        await createUserWithEmailAndPassword(auth, credentials.email, credentials.password).then(async (res) => {
             const user = res.user;
-            
-        }).catch((error) => {
+            const idToken = await user.getIdToken();
 
+            const expiresIn = 60 * 60 * 24 * 5 * 1000;
+            const sessionCookie = await admin.auth().createSessionCookie(idToken, { expiresIn });
+
+            const userData = {
+                uid: user.uid,
+                email: user.email,
+                role: 'user',
+                status: 'active'
+            };
+
+            await exports.createObject({
+                body: {
+                    collectionName: 'users',
+                    objectData: userData
+                }
+            }, {
+                status: (statusCode) => ({
+                    json: (responseBody) => console.log(responseBody)
+                })
+            });
+
+            response = { status: 200, statusTitle: 'success', user: user.uid, sessionCookie };
+        }).catch((error) => {
+            response = { status: 400, statusTitle: 'error', message: `Failed to Sign-in. ${error.message}` }
         });
 
+        res.status(response.status).json({ response });
+    } catch (error) {
+        console.error(error);
+        res.status(400).send(error.code);
+    }
+}
 
-    } catch(error) {
+exports.signOut = async (req, res) => {
+    try {
+        const sessionCookie = req.cookies.session || '';
 
+        if (!sessionCookie) {
+            return res.status(401).json({ status: 'error', message: 'No active session' });
+        }
+
+        res.clearCookie('session');
+
+        await admin.auth().verifySessionCookie(sessionCookie, true)
+            .then(async (decodedClaims) => {
+                await admin.auth().revokeRefreshTokens(decodedClaims.sub);
+            })
+            .catch((error) => {
+                console.error("Error while verifying session cookie:", error);
+                return res.status(401).json({ status: 'error', message: 'Invalid session' });
+            });
+
+        res.status(200).json({ status: 'success', message: 'Logged out successfully' });
+    } catch (error) {
+        console.error(error);
+        res.status(400).json({ status: 'error', message: 'Logout failed' });
+    }
+}
+
+exports.resetPassword = async (req, res) => {
+    try {
+        const {
+            email
+        } = req.body;
+
+        let response;
+        const auth = getAuth();
+
+        await sendPasswordResetEmail(auth, email).then(() => {
+            response = { status: 200, statusTitle: 'success', message: 'Password reset email sent' };
+        }).catch((error) => {
+            response = { status: 400, statusTitle: 'error', message: `Failed to send password reset email. ${error.message}` }
+        });
+        res.status(response.status).json({ response });
+    } catch (error) {
+        console.error(error);
+        res.status(400).send(error.code);
+    }
+}
+
+exports.updateUser = async (req, res) => {
+    try {
+        const {
+            credentials,
+        } = req.body;
+
+        let response;
+        
+        await admin.auth().updateUser(credentials.uid, credentials.user).then(() => {
+            response = { status: 200, statusTitle: 'success', message: `User ${credentials.uid} successful updated` };
+        }).catch((error) => {
+            response = { status: 200, statusTitle: 'success', message: `User ${credentials.uid} failed to update. ${error.message}` };
+        });
+        
+        res.status(response.status).json({ response });
+    } catch (error) {
+        console.error(error);
+        res.status(400).send(error.code);
     }
 }
 // Mails

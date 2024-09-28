@@ -9,8 +9,13 @@ router.route('/create').post(ApiController.createObject);
 router.route('/update').put(ApiController.updateObject);
 router.route('/delete').delete(ApiController.deleteObject);
 // Storage
+
 // Authentication
 router.route('/sign-in').post(ApiController.signIn);
+router.route('/sign-up').post(ApiController.signUp);
+router.route('/sign-out').post(ApiController.signOut);
+router.route('/reset-password').post(ApiController.resetPassword);
+router.route('/update-user').post(ApiController.updateUser);
 // Mails
 
 
