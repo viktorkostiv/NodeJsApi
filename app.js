@@ -3,20 +3,15 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 // const helmet = require('helmet');
 const xss = require('xss-clean');
-const admin = require("firebase-admin");
 
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const compression = require('compression');
+require('dotenv').config();
 
 const ApiRouter = require('./routes/ApiRouter');
 
-const serviceAccount = require("./serviceAccountKey.json");
-
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-});
 
 const app = express();
 // app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
