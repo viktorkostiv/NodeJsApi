@@ -21,6 +21,7 @@ router.route('/sign-out').post(ApiController.signOut);
 router.route('/reset-password').post(ApiController.resetPassword);
 router.route('/update-user').post(ApiController.updateUser);
 // Mails
+router.route('/send-message').post(ApiController.sendMessage)
 
 
 module.exports = router;

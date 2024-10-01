@@ -1,4 +1,3 @@
-const path = require('path');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 // const helmet = require('helmet');
@@ -20,12 +19,19 @@ app.use(express.json());
 // app.use(helmet());
 
 const limiter = rateLimit({
-    max: 1000,
-    windowMs: 60 * 60 * 1000,
+    max: 100,
+    windowMs: 15 * 60 * 1000,
     massage: "Too many requests from this IP, please try again in an hour",
+    headers: true,
 });
+
+const corsOptions = {
+    // origin: 'https://yourdomain.com', 
+    // methods: ['GET', 'POST', 'PUT', 'DELETE'],
+};
+
 app.use('/', limiter);
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(xss());
 app.use(bodyParser.json());
 app.use(cookieParser());

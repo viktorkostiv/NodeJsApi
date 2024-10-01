@@ -7,6 +7,8 @@ require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const Joi = require('joi');
+const sgMail = require('@sendgrid/mail');
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 const handleError = (res, error) => {
     console.error(error);
@@ -79,6 +81,14 @@ const updateUserSchema = Joi.object({
         uid: Joi.string().required(),
         user: Joi.object().required(),
     }).required(),
+});
+
+const sendMessageSchema = Joi.object({
+    user: Joi.object({
+        email: Joi.string().email().required(),
+        name: Joi.string().required(),
+    }).required(),
+    message: Joi.string().required(),
 });
 
 
@@ -309,22 +319,23 @@ exports.signUp = async (req, res) => {
             status: 'active'
         };
 
-        const createResponse = await exports.createObject({
+        let createResponseBody;
+        await exports.createObject({
             body: {
                 collectionName: 'users',
                 objectData: userData
             }
         }, {
             status: (statusCode) => ({
-                json: (responseBody) => console.log(responseBody)
+                json: (responseBody) => createResponseBody = responseBody,
             })
         });
 
-        if (createResponse.status === 'error') {
-            return res.status(400).json({ status: 'error', message: `Failed to create user data. ${createResponse.message}` });
+        if (createResponseBody?.status === 'error') {
+            return res.status(400).json({ status: 'error', message: `Failed to create user data. ${createResponseBody?.message}` });
         }
 
-        res.status(200).json({ status: 'success', user: user.uid, sessionCookie });
+        res.status(200).json({ status: 'success', user: user.uid, sessionCookie, createResponseBody });
     } catch (error) {
         handleError(res, error);
     }
@@ -387,3 +398,86 @@ exports.updateUser = async (req, res) => {
     }
 }
 // Mails
+
+exports.sendMessage = async (req, res) => {
+    const { error } = sendMessageSchema.validate(req.body);
+    if (error) return res.status(400).json({ status: 'error', message: error.details[0].message });
+
+    try {
+        const {
+            user,
+            message
+        } = req.body;
+
+        const fromEmail = process.env.SENDGRID_EMAIL_FROM;
+        const adminEmail = process.env.SENDGRID_EMAIL_TO;
+        const projectName = process.env.PROJECT_NAME;
+        const projectLogo = process.env.PROJECT_LOGO;
+
+        const adminEmailBody = `
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <img src="${projectLogo}" alt="Company Logo" style="display: block; margin: 0 auto; max-width: 80%;">
+                    <div style="margin-top: 60px;">
+                        <p>We received a new request from the user through the contact form on our site ${projectName}. Here are the details:</p>
+                        <p><b>User Name:</b> ${user.name}</p>
+                        <p><b>Email:</b> ${user.email}</p>
+                        <p><b>Message:</b> ${message}</p>
+                        <p>Please contact the user as soon as possible. Thank you.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const customerEmailBody = `
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <img src="${projectLogo}" alt="Company Logo" style="display: block; margin: 0 auto; max-width: 80%;">
+                    <div style="margin-top: 60px;">
+                        <p>Dear ${user.name},</p>
+                        <p>Thank you for your message! We have received your inquiry and will get back to you shortly.</p>
+                        <p>If you have urgent questions, feel free to contact us directly. Best regards, ${projectName}.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        await sgMail.send({
+            to: adminEmail,
+            from: fromEmail,
+            subject: `New Request from ${user.email}`,
+            html: adminEmailBody,
+        });
+
+        await sgMail.send({
+            to: user.email,
+            from: fromEmail,
+            subject: 'Thank you for contacting us!',
+            html: customerEmailBody,
+        });
+
+        let createResponseBody;
+        await exports.createObject({
+            body: {
+                collectionName: 'messages',
+                objectData: {
+                    date: new Date().toISOString(),
+                    email: user.email,
+                    name: user.name,
+                    message: message
+                }
+            }
+        }, {
+            status: (statusCode) => ({
+                json: (responseBody) => createResponseBody = responseBody,
+            })
+        });
+        if (createResponseBody?.status === 'error') {
+            return res.status(400).json({ status: 'error', message: `Failed to create message data. ${createResponseBody?.message}` });
+        }
+
+        res.status(200).json({ status: 'success', user, message, createResponseBody });
+    } catch (error) {
+        handleError(res, error);
+    }
+}
